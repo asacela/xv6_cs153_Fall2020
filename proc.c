@@ -329,6 +329,7 @@ int wait(int *status)
     sleep(curproc, &ptable.lock); //DOC: wait-sleep
   }
 }
+
 int waitpid(int pid, int *status, int options){
   struct proc *p;
   int havepid;
