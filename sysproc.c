@@ -51,8 +51,8 @@ sys_waitpid(void)
   if(argint(2, &options) < 0)
     return -1;
 
-  waitpid(pid, status0, options);
-  return 0;
+  
+  return waitpid(pid, status0, options);
 }
 
 int
@@ -117,4 +117,19 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+int
+sys_setpriority(void)
+{
+
+  int priority;
+
+  if(argint(0, &priority) < 0)
+    return -1;
+
+  setpriority(priority);
+  
+  return 0;
+
 }

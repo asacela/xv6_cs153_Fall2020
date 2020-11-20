@@ -235,17 +235,15 @@ void exit(int status)
   struct proc *p;
   int fd;
 
-  if (curproc == initproc)
-    panic("init exiting");
+  if(curproc == initproc)
+      panic("init exiting");
 
   // Close all open files.
-  for (fd = 0; fd < NOFILE; fd++)
-  {
-    if (curproc->ofile[fd])
-    {
-      fileclose(curproc->ofile[fd]);
-      curproc->ofile[fd] = 0;
-    }
+  for(fd = 0; fd < NOFILE; fd++){
+      if(curproc->ofile[fd]){
+          fileclose(curproc->ofile[fd]);
+          curproc->ofile[fd] = 0;
+      }
   }
 
   begin_op();
@@ -259,19 +257,25 @@ void exit(int status)
   wakeup1(curproc->parent);
 
   // Pass abandoned children to init.
-  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-  {
-    if (p->parent == curproc)
-    {
-      p->parent = initproc;
-      if (p->state == ZOMBIE)
-        wakeup1(initproc);
-    }
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->parent == curproc){
+          p->parent = initproc;
+          if(p->state == ZOMBIE)
+              wakeup1(initproc);
+      }
   }
+
+  // Adding exit status to PCB for given process
   curproc->status = status;
   cprintf("Exit Status: [%d]\n", status);
 
   // Jump into the scheduler, never to return.
+  cprintf("%d Turnaround time ticks\n", (ticks - curproc->tick));
+  cprintf("%d Burst time ticks\n", curproc->runtime);
+  cprintf("%d Waiting time ticks\n",((ticks - curproc->tick) - (curproc->runtime)));
+  
+  //cprintf("%d Exit Burst time ticks\n", (ticks - curproc->tick));
+  //curproc->status = status;
   curproc->state = ZOMBIE;
   sched();
   panic("zombie exit");
@@ -340,8 +344,9 @@ int waitpid(int pid, int *status, int options){
     // Scan through table looking for exited children.
     havepid = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->pid != pid)
+      if(p->pid != pid){
         continue;
+      }
       havepid = 1;
       if(p->state == ZOMBIE){
         // Found one.
@@ -390,6 +395,7 @@ int waitpid(int pid, int *status, int options){
 //      via swtch back to the scheduler.
 void scheduler(void)
 {
+  struct proc *oldproc = myproc();
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
@@ -400,26 +406,69 @@ void scheduler(void)
     sti();
 
     // Loop over process table looking for process to run.
+    int range = 31; // 0-31 range would be 32 i think -> changed to 31
+
     acquire(&ptable.lock);
-    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    {
-      if (p->state != RUNNABLE)
-        continue;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
+        if(p->state != RUNNABLE) {
 
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
+            continue;
+        }
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
+        else if(p->priority < range) {
+
+            range = p->priority;
+        }
     }
+
+    // AGING
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    {
+
+        if (p->state == RUNNABLE && p != oldproc) 
+        {
+            if(p->priority < 32 && p->priority > 0)
+            {
+                p->priority -= 1;
+            }
+        }
+        else if(p == oldproc)
+        {
+            if(p->priority == 0)
+            {
+                p->priority += 1;
+            }
+        }
+    }
+
+    // Switch to chosen process.  It is the process's job
+    // to release ptable.lock and then reacquire it
+    // before jumping back to us.
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+        if (p->state != RUNNABLE)
+            continue;
+
+        if (p->priority == range) {
+            c->proc = p;
+            switchuvm(p);
+            p->state = RUNNING;
+
+            int before = ticks;
+
+            swtch(&(c->scheduler), p->context);
+            switchkvm();
+
+            p->runtime += ticks - before;
+            //cprintf("Burst time: %d seconds \n", sec);
+
+            // Process is done running for now.
+            // It should have changed its p->state before coming back.
+            c->proc = 0;
+        }
+
+    }
+
     release(&ptable.lock);
   }
 }
@@ -599,4 +648,25 @@ void procdump(void)
     }
     cprintf("\n");
   }
+}
+
+int setpriority(int priority){
+
+    struct proc *curproc = myproc();
+
+    if(priority < 0){
+
+        curproc->priority = 31;
+    }
+    else if(priority > 31){
+
+        curproc->priority = 0;
+    }
+    else{
+
+        curproc->priority = priority;
+    }
+    cprintf("Priority Set: %d\n", curproc->priority);
+    yield();
+    return 0;
 }
