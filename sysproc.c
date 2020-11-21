@@ -66,6 +66,17 @@ sys_kill(void)
 }
 
 int
+sys_setprior(void)
+{
+  int x;
+
+  if(argint(0, &x) < 0)
+    return -1;
+  setprior(x);
+  return 0;
+}
+
+int
 sys_getpid(void)
 {
   return myproc()->pid;

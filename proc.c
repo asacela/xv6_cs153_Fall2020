@@ -390,38 +390,99 @@ int waitpid(int pid, int *status, int options){
 //      via swtch back to the scheduler.
 void scheduler(void)
 {
-  struct proc *p;
-  struct cpu *c = mycpu();
-  c->proc = 0;
 
-  for (;;)
-  {
-    // Enable interrupts on this processor.
-    sti();
+    // MAX and MIN for Priority Range
+    const int MAX = 31;
+    const int MIN = 0;
 
-    // Loop over process table looking for process to run.
-    acquire(&ptable.lock);
-    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    {
-      if (p->state != RUNNABLE)
-        continue;
+    // Scheduler Variables
+    
+    struct proc *p;
+    struct cpu *c = mycpu();
+    c->proc = 0;
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
+    // PID to get process PID
+    int pid = -1;// = NULL;
+    
+            
+    cprintf("\nEntering Priority Scheduler...\n");
+    for(;;){
+        // Enable interrupts on this processor.
+        sti();
 
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
+        // Loop over process table looking for process to run.
+        int range = 31; // 0-31 range would be 32 i think -> changed to 31
+        acquire(&ptable.lock);
+        for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+            if(p->state != RUNNABLE) {
+                continue;
+            }
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
+            // if-else branch for regulating priority values
+            if(p->prior_val >= MAX){
+
+                p->prior_val = p->prior_val % MAX;
+            }
+            else if(p->prior_val <= MIN){
+
+                p->prior_val = (p->prior_val % MAX) * -1; 
+            }
+
+            // finding highest priority value
+            if(range > p->prior_val) {
+
+                range = p->prior_val; //change range 
+                pid = p->pid;
+                //cprintf("check-priority: [%d]\n", p->prior_val);
+                //cprintf("c-PID: [%d]\n", p->pid);
+            }
+        }
+
+
+        // Aging Processes
+        for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+            if (p->state == RUNNABLE) {
+
+                if(p->pid == pid){
+                    //cprintf("in-priority: [%d]\n", p->prior_val);
+                    //cprintf("PID: [%d]\n", p->pid);
+                    p->prior_val += 1; 
+                
+                }
+
+                else{
+                    p->prior_val -= 1;
+                }
+            }       
+        }
+
+        // Switch to chosen process.  It is the process's job
+        // to release ptable.lock and then reacquire it
+        // before jumping back to us.
+        for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+            if (p->state != RUNNABLE)
+                continue;
+
+            
+            if (p->pid == pid) {
+                //cprintf("out-priority: [%d]\n", p->prior_val);
+                //cprintf("PID: [%d]\n", p->pid);
+                c->proc = p;
+                switchuvm(p);
+                p->state = RUNNING;
+
+                swtch(&(c->scheduler), p->context);
+                switchkvm();
+
+                // Process is done running for now.
+                // It should have changed its p->state before coming back.
+                c->proc = 0;
+            }
+
+        }
+
+        release(&ptable.lock);
     }
-    release(&ptable.lock);
-  }
 }
 
 // Enter scheduler.  Must hold only ptable.lock
@@ -599,4 +660,28 @@ void procdump(void)
     }
     cprintf("\n");
   }
+}
+
+int setprior(int prior_val){
+
+    struct proc *curproc = myproc();
+
+    if(prior_val < 0){
+
+        curproc->prior_val = 31;
+    }
+
+    else if(prior_val > 31){
+
+        curproc->prior_val = 0;
+    }
+
+    else{
+
+        curproc->prior_val = prior_val;
+    }
+
+    cprintf("Setting priority: %d\n", curproc->prior_val);
+    yield();
+    return 0;
 }

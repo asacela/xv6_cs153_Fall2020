@@ -52,6 +52,8 @@ struct proc {
   int status;                  // Process status
   int waitpid_idx;
   struct proc *waitpid[20];
+  int prior_val;               // range 0 to 31
+  struct rtcdate *time;        // get turnaround time
 };
 
 // Process memory is laid out contiguously, low addresses first:
