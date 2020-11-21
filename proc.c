@@ -395,81 +395,98 @@ int waitpid(int pid, int *status, int options){
 //      via swtch back to the scheduler.
 void scheduler(void)
 {
-  struct proc *oldproc = myproc();
+
+  // MAX and MIN for Priority Range
+  const int MAX = 31;
+  const int MIN = 0;
+
+  // Scheduler Variables
+  
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
 
-  for (;;)
-  {
-    // Enable interrupts on this processor.
-    sti();
+  // PID to get process PID
+  int pid = -1;// = NULL;
+  
+          
+  cprintf("\nEntering Priority Scheduler...\n");
+  for(;;){
+      // Enable interrupts on this processor.
+      sti();
 
-    // Loop over process table looking for process to run.
-    int range = 31; // 0-31 range would be 32 i think -> changed to 31
+      // Loop over process table looking for process to run.
+      int range = 31; // 0-31 range would be 32 i think -> changed to 31
+      acquire(&ptable.lock);
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+          if(p->state != RUNNABLE) {
+              continue;
+          }
 
-    acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+          // if-else branch for regulating priority values
+          if(p->priority >= MAX){
 
-        if(p->state != RUNNABLE) {
+              p->priority = p->priority % range;
+          }
+          else if(p->priority <= MIN){
 
-            continue;
-        }
+              p->priority = (p->priority % range) * -1;
+          }
 
-        else if(p->priority < range) {
+          // finding highest priority value
+          if(range > p->priority) {
 
-            range = p->priority;
-        }
-    }
+              range = p->priority; //change range 
+              pid = p->pid;
+              //cprintf("check-priority: [%d]\n", p->priority);
+              //cprintf("c-PID: [%d]\n", p->pid);
+          }
+      }
 
-    // AGING
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    {
 
-        if (p->state == RUNNABLE && p != oldproc) 
-        {
-            if(p->priority < 32 && p->priority > 0)
-            {
-                p->priority -= 1;
-            }
-        }
-        else if(p == oldproc)
-        {
-            if(p->priority == 0)
-            {
-                p->priority += 1;
-            }
-        }
-    }
+      // Aging Processes
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+          if (p->state == RUNNABLE) {
 
-    // Switch to chosen process.  It is the process's job
-    // to release ptable.lock and then reacquire it
-    // before jumping back to us.
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-        if (p->state != RUNNABLE)
-            continue;
+              if(p->pid == pid){
+                  //cprintf("in-priority: [%d]\n", p->priority);
+                  //cprintf("PID: [%d]\n", p->pid);
+                  p->priority += 1; 
+              
+              }
 
-        if (p->priority == range) {
-            c->proc = p;
-            switchuvm(p);
-            p->state = RUNNING;
+              else{
+                  p->priority -= 1;
+              }
+          }       
+      }
 
-            int before = ticks;
+      // Switch to chosen process.  It is the process's job
+      // to release ptable.lock and then reacquire it
+      // before jumping back to us.
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+          if (p->state != RUNNABLE)
+              continue;
 
-            swtch(&(c->scheduler), p->context);
-            switchkvm();
+          
+          if (p->pid == pid) {
+              //cprintf("out-priority: [%d]\n", p->priority);
+              //cprintf("PID: [%d]\n", p->pid);
+              c->proc = p;
+              switchuvm(p);
+              p->state = RUNNING;
 
-            p->runtime += ticks - before;
-            //cprintf("Burst time: %d seconds \n", sec);
+              swtch(&(c->scheduler), p->context);
+              switchkvm();
 
-            // Process is done running for now.
-            // It should have changed its p->state before coming back.
-            c->proc = 0;
-        }
+              // Process is done running for now.
+              // It should have changed its p->state before coming back.
+              c->proc = 0;
+          }
 
-    }
+      }
 
-    release(&ptable.lock);
+      release(&ptable.lock);
   }
 }
 
